@@ -139,7 +139,8 @@ router.post(
       const product = await Product.create({ ...req.body, createdBy: req.user.userId });
       res.status(201).json({ message: 'Product created', product });
     } catch (err) {
-      res.status(500).json({ error: 'Failed to create product' });
+      console.error('Create product error:', err);
+      res.status(500).json({ error: 'Failed to create product', details: err.message });
     }
   }
 );
