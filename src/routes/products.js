@@ -1,9 +1,42 @@
 const express = require('express');
+const axios = require('axios');
 const { body, query, validationResult } = require('express-validator');
 const Product = require('../models/Product');
 const { authenticate, requireAdmin } = require('../middleware/auth');
 
 const router = express.Router();
+const USER_SERVICE_URL = process.env.USER_SERVICE_URL || 'http://localhost:3001';
+const NOTIFICATION_SERVICE_URL = process.env.NOTIFICATION_SERVICE_URL || 'http://localhost:3004';
+
+/**
+ * Helper: Notify all admin users about a product lifecycle event.
+ * Fetches admin emails from user-service, then fires a notification for each.
+ * Demonstrates inter-service communication: product-service → user-service → notification-service.
+ */
+const notifyAdmins = async (product, action, authHeader) => {
+  try {
+    // Fetch all users from user-service and filter admins
+    const { data } = await axios.get(`${USER_SERVICE_URL}/auth/users`, {
+      headers: { Authorization: authHeader },
+      timeout: 5000,
+    });
+    const adminEmails = (data.users || []).filter(u => u.role === 'admin').map(u => u.email);
+
+    // Fire-and-forget notification for each admin — product-service → notification-service
+    for (const email of adminEmails) {
+      axios.post(`${NOTIFICATION_SERVICE_URL}/api/notifications/product-update`, {
+        adminEmail: email,
+        productId: product._id,
+        productName: product.name,
+        action,
+        price: product.price,
+        category: product.category,
+      }, { timeout: 5000 }).catch(err => console.error('Product notification failed:', err.message));
+    }
+  } catch (err) {
+    console.error('Failed to fetch admin list for notification:', err.message);
+  }
+};
 
 /**
  * @swagger
@@ -140,6 +173,10 @@ router.post(
 
     try {
       const product = await Product.create({ ...req.body, createdBy: req.user.userId });
+
+      // Fire-and-forget notification — product-service → notification-service
+      notifyAdmins(product, 'created', req.headers.authorization);
+
       res.status(201).json({ message: 'Product created', product });
     } catch (err) {
       console.error('Create product error:', err);
@@ -182,6 +219,9 @@ router.put('/:id', authenticate, requireAdmin, async (req, res) => {
     allowed.forEach((field) => { if (req.body[field] !== undefined) product[field] = req.body[field]; });
     await product.save();
 
+    // Fire-and-forget notification — product-service → notification-service
+    notifyAdmins(product, 'updated', req.headers.authorization);
+
     res.json({ message: 'Product updated', product });
   } catch (err) {
     res.status(500).json({ error: 'Failed to update product' });
@@ -215,6 +255,10 @@ router.delete('/:id', authenticate, requireAdmin, async (req, res) => {
 
     product.isActive = false;
     await product.save();
+
+    // Fire-and-forget notification — product-service → notification-service
+    notifyAdmins(product, 'deleted', req.headers.authorization);
+
     res.json({ message: 'Product deleted successfully' });
   } catch (err) {
     res.status(500).json({ error: 'Failed to delete product' });
