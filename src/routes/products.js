@@ -91,7 +91,7 @@ router.get('/:id', async (req, res) => {
  * @swagger
  * /products:
  *   post:
- *     summary: Create a new product (authenticated)
+ *     summary: Create a new product (Admin only)
  *     tags: [Products]
  *     security:
  *       - bearerAuth: []
@@ -120,10 +120,13 @@ router.get('/:id', async (req, res) => {
  *         description: Product created
  *       401:
  *         description: Unauthorized
+ *       403:
+ *         description: Admin access required
  */
 router.post(
   '/',
   authenticate,
+  requireAdmin,
   [
     body('name').trim().notEmpty().withMessage('Name is required'),
     body('description').trim().notEmpty().withMessage('Description is required'),
@@ -149,7 +152,7 @@ router.post(
  * @swagger
  * /products/{id}:
  *   put:
- *     summary: Update a product (authenticated – owner or admin)
+ *     summary: Update a product (Admin only)
  *     tags: [Products]
  *     security:
  *       - bearerAuth: []
@@ -167,16 +170,13 @@ router.post(
  *     responses:
  *       200:
  *         description: Product updated
+ *       403:
+ *         description: Admin access required
  */
-router.put('/:id', authenticate, async (req, res) => {
+router.put('/:id', authenticate, requireAdmin, async (req, res) => {
   try {
     const product = await Product.findById(req.params.id);
     if (!product) return res.status(404).json({ error: 'Product not found' });
-
-    // Only owner or admin can update
-    if (product.createdBy !== req.user.userId && req.user.role !== 'admin') {
-      return res.status(403).json({ error: 'Forbidden: not your product' });
-    }
 
     const allowed = ['name', 'description', 'price', 'category', 'stock', 'imageUrl', 'isActive'];
     allowed.forEach((field) => { if (req.body[field] !== undefined) product[field] = req.body[field]; });
@@ -192,7 +192,7 @@ router.put('/:id', authenticate, async (req, res) => {
  * @swagger
  * /products/{id}:
  *   delete:
- *     summary: Soft-delete a product (authenticated – owner or admin)
+ *     summary: Soft-delete a product (Admin only)
  *     tags: [Products]
  *     security:
  *       - bearerAuth: []
@@ -205,15 +205,13 @@ router.put('/:id', authenticate, async (req, res) => {
  *     responses:
  *       200:
  *         description: Product deleted
+ *       403:
+ *         description: Admin access required
  */
-router.delete('/:id', authenticate, async (req, res) => {
+router.delete('/:id', authenticate, requireAdmin, async (req, res) => {
   try {
     const product = await Product.findById(req.params.id);
     if (!product) return res.status(404).json({ error: 'Product not found' });
-
-    if (product.createdBy !== req.user.userId && req.user.role !== 'admin') {
-      return res.status(403).json({ error: 'Forbidden: not your product' });
-    }
 
     product.isActive = false;
     await product.save();
